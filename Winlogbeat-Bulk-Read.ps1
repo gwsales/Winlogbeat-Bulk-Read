@@ -84,20 +84,28 @@ else {
   }
 }
 
-Write-Host "Using $Exe"
+## Winlogbeat Paths
+## https://www.elastic.co/guide/en/beats/winlogbeat/master/directory-layout.html
+$PathHome = "$PSScriptRoot\winlogbeat"
+$PathData = "$PathHome\data"
+$PathLogs = "$PathHome\logs"
+$Bookmark_File = "$PathData\.winlogbeat.yml"
+$Lock_File = "$PathData\winlogbeat.lock"
 
+## Winlogbeat config file
 ## winlogbeat.yml is ignored in .gitignore
-
 $winlogbeat_config = "$PSScriptRoot\winlogbeat.yml"
 $winlogbeat_example_config = "$PSScriptRoot\winlogbeat_example.yml"
 
-$winlogbeat_log = "$PSScriptRoot\winlogbeat\log"
-if (!(Test-Path -Path "$PSScriptRoot\winlogbeat")) {
-  New-Item -Path "$PSScriptRoot\winlogbeat" -ItemType Directory
+Write-Host "Using $Exe"
+
+if (!(Test-Path -Path $PathHome)) {
+  ## Required for log output
+  New-Item -Path $PathHome -ItemType Directory
 }
 else {
-  if ($Reset -and (Test-Path -Path "$PSScriptRoot\winlogbeat\evtx-registry.yml")) {
-    Remove-Item -Path "$PSScriptRoot\winlogbeat\evtx-registry.yml"
+  if ($Reset -and (Test-Path -Path $Bookmark_File)) {
+    Remove-Item -Path $Bookmark_File
   }
 }
 
@@ -132,12 +140,18 @@ foreach ($evtx in $evtx_files) {
     Write-Host "Reading $evtx_path"
   }
   Write-Progress -Id 1 -Activity "Reading $evtx_count EVTX files" -Status "Reading $evtx_path" -PercentComplete (($i / $evtx_count) * 100)
-
+  if (Test-Path $Lock_File){
+    Write-Host "Sleeping due to lock file"
+    Start-Sleep -Seconds 1
+    if (Test-Path -Path $Lock_File){
+      Write-Error -Message "Winlogbeat locked, remove lock file" -ErrorAction Stop
+    }
+  }
   if ($Test){
-    & $Exe test config -c $config -e --path.data "$PSScriptRoot\winlogbeat" -E "CWD=$PSScriptRoot" -E "EVTX_FILE=$evtx_path"
+    & $Exe test config -e -c $config --path.home $PathHome -E "EVTX_FILE=$evtx_path"
   }
   else {
-    & $Exe -c $config -e --path.data "$PSScriptRoot\winlogbeat" -E "CWD=$PSScriptRoot" -E "EVTX_FILE=$evtx_path" 2>&1 >> "$winlogbeat_log"
+    & $Exe -c $config --path.home $PathHome -E "EVTX_FILE=$evtx_path"
   }
 
   if ($Test){
@@ -148,9 +162,9 @@ foreach ($evtx in $evtx_files) {
   else {
     if ($Append -and $example_config) {
       #Start-Sleep -Seconds 1
-      if (Test-Path "$PSScriptRoot\winlogbeat\events.json"){
-        $raw = Get-Content "$PSScriptRoot\winlogbeat\events.json"
-        Add-Content -Path "$PSScriptRoot\winlogbeat\bulk_events.json" -Value $raw
+      if (Test-Path "$PathHome\events.json"){
+        $raw = Get-Content "$PathHome\events.json"
+        Add-Content -Path "$PathHome\bulk_events.json" -Value $raw
       }
     }
   }
